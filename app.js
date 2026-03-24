@@ -1,5 +1,5 @@
 // ============================================================
-// GYM PLANNER — app.js
+// NANO-GYM — app.js
 // Push/Pull/Cardio · Injury tracking · Muscle fatigue
 // ============================================================
 //
@@ -331,43 +331,36 @@ async function loadAndCacheYuhouasDB() {
 
 async function downloadFullExerciseDB() {
   try {
-    // Show progress meter
-    const progressDiv = document.getElementById('download-progress');
-    if (progressDiv) {
-      progressDiv.innerHTML = `
-        <div style="text-align: center; padding: 20px;">
-          <div style="font-size: 14px; margin-bottom: 10px;">⏳ Loading exercise database...</div>
-          <div style="width: 100%; height: 8px; background: var(--bg-secondary); border-radius: 4px; overflow: hidden;">
-            <div style="width: 0%; height: 100%; background: var(--brand); animation: pulse 1.5s infinite;"></div>
-          </div>
-          <div style="font-size: 12px; margin-top: 8px; color: var(--text-secondary);">Fetching 1,500+ exercises...</div>
-        </div>
-      `;
-      progressDiv.style.display = 'block';
-    }
-    
+    // Update overlay progress
+    const overlayStatus = document.getElementById('overlay-status');
+    const overlayBar = document.getElementById('overlay-bar');
+    if (overlayStatus) overlayStatus.textContent = 'Downloading exercise database...';
+    if (overlayBar) overlayBar.style.width = '20%';
+
     const response = await fetch('https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json');
     if (!response.ok) throw new Error('Failed to load exercises');
-    
+
+    if (overlayBar) overlayBar.style.width = '70%';
+    if (overlayStatus) overlayStatus.textContent = 'Building workout pools...';
+
     YUHONAS_EXERCISES_CACHE = await response.json();
-    
+
     // Cache to localStorage
     localStorage.setItem(CACHE_DATA_KEY, JSON.stringify(YUHONAS_EXERCISES_CACHE));
     localStorage.setItem(CACHE_CHECK_KEY, Date.now().toString());
-    
+
+    if (overlayBar) overlayBar.style.width = '90%';
     console.log(`✅ Downloaded and cached ${Object.keys(YUHONAS_EXERCISES_CACHE).length} exercises`);
-    
-    // Hide progress meter
+
+    // Hide old progress div if present
+    const progressDiv = document.getElementById('download-progress');
     if (progressDiv) progressDiv.style.display = 'none';
-    
+
     return YUHONAS_EXERCISES_CACHE;
   } catch (err) {
     console.error('❌ Failed to load exercise DB:', err);
-    const progressDiv = document.getElementById('download-progress');
-    if (progressDiv) {
-      progressDiv.innerHTML = `<div style="color: red; padding: 10px;">Failed to load exercises. Using offline mode.</div>`;
-      setTimeout(() => progressDiv.style.display = 'none', 3000);
-    }
+    const overlayStatus = document.getElementById('overlay-status');
+    if (overlayStatus) overlayStatus.textContent = '⚠️ Failed to load. Using offline mode.';
     return {};
   }
 }
@@ -539,7 +532,7 @@ function filterOfflineExercises(searchTerm = '') {
 // ── ONBOARDING SLIDES DATA ────────────────────────────────────
 const ONBOARDING_SLIDES = [
   {
-    title: 'Welcome to Gym Planner! 💪',
+    title: 'Welcome to Nano-Gym! 🤦',
     subtitle: 'Your personal AI-powered workout companion',
     content: 'Track workouts, monitor recovery, and smash your fitness goals. Let\'s get started!'
   },
@@ -1882,28 +1875,41 @@ let S = {
 // SECTION 1: INITIALIZATION & STATE MANAGEMENT
 // ═══════════════════════════════════════════════════════════
 
-function init() {
+function dismissLoadingOverlay() {
+  const overlay = document.getElementById('loading-overlay');
+  if (!overlay) return;
+  const bar = document.getElementById('overlay-bar');
+  if (bar) bar.style.width = '100%';
+  setTimeout(() => {
+    overlay.style.opacity = '0';
+    setTimeout(() => overlay.style.display = 'none', 400);
+  }, 300);
+}
+
+async function init() {
   loadState();
   S.notifEnabled = localStorage.getItem('gym_notif') === 'true';
   if (S.notifEnabled && DOM.notifBtn) DOM.notifBtn.textContent = 'Enabled ✓';
-  // Check if user has seen onboarding
-  if (!S.hasSeenOnboarding) {
-  showOnboarding();
+
+  // Run download first, overlay stays up during this
+  try {
+    await loadExercisesFromWger();
+  } catch (e) {
+    console.warn('Exercise load failed, continuing with local', e);
   }
-  // Load exercises from Wger if online, otherwise use local
-  loadExercisesFromWger().then(() => {
-    renderAll();
-    loadProfileUI();
-    setupInstallPrompt();
-    document.getElementById('unit-sel').value = S.unit;
-    updateConnectivityStatus();
-  }).catch(() => {
-    renderAll();
-    loadProfileUI();
-    setupInstallPrompt();
-    document.getElementById('unit-sel').value = S.unit;
-    updateConnectivityStatus();
-  });
+
+  // Render app fully before dismissing overlay
+  renderAll();
+  loadProfileUI();
+  setupInstallPrompt();
+  document.getElementById('unit-sel').value = S.unit;
+  updateConnectivityStatus();
+
+  // Dismiss overlay, then show onboarding if first launch
+  dismissLoadingOverlay();
+  if (!S.hasSeenOnboarding) {
+    setTimeout(() => showOnboarding(), 450); // slight delay so overlay fade finishes
+  }
 }
 
 function loadState() {
@@ -2095,29 +2101,30 @@ function renderWeekStrip() {
   const dayOfWeek = (today.getDay() + 6) % 7;
   weekStart.setDate(today.getDate() - dayOfWeek + (_weekOffset * 7));
   
-  let html = `<div style="display:flex;gap:8px;align-items:center;margin-bottom:1rem;padding:8px;background:#1a1a1a;border-radius:var(--radius-lg)">
-    <div onclick="_weekOffset--;renderWeekStrip();renderSchedule()" style="padding:8px 12px;flex-shrink:0;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-weight:600">← Prev</div>
-    <div style="flex:1;display:flex;gap:6px">`;
+  const navBtnStyle = `padding:8px 10px;flex-shrink:0;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-weight:600;color:var(--text);-webkit-tap-highlight-color:transparent`;
+  let html = `<div style="display:flex;gap:6px;align-items:center;padding:8px;background:var(--bg-secondary);border-radius:var(--radius-lg)">
+    <div onclick="_weekOffset--;renderWeekStrip();renderSchedule()" style="${navBtnStyle}">←</div>
+    <div style="flex:1;display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch">`;
   
   for (let i = 0; i < 7; i++) {
     const d = new Date(weekStart);
     d.setDate(weekStart.getDate() + i);
     const isToday = d.toDateString() === today.toDateString();
     const isSelected = _selectedDay === i;
-    const dateStr = d.toLocaleDateString('sv-SE', { month: 'short', day: 'numeric' });
+    const dateStr = `${d.getDate()}/${d.getMonth() + 1}`;
     const dayName = DAYS_SHORT[i];
     const sched = getSched();
     const type = sched[i];
     const emoji = { push: '💪', pull: '⬇️', cardio: '🏃', rest: '😴' }[type];
     
-    html += `<div onclick="selectDay(${i})" style="padding:10px;background:var(--bg);color:var(--text);border:${isSelected ? '2px solid var(--brand)' : '1px solid var(--border)'};border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:3px;min-width:60px;flex-shrink:0;${isToday ? 'background:var(--brand);color:#fff;' : ''}">
-      <span style="font-size:16px">${emoji}</span>
+    html += `<div onclick="selectDay(${i})" style="padding:8px 4px;background:${isToday ? 'var(--brand)' : 'var(--bg)'};color:${isToday ? '#fff' : 'var(--text)'};border:${isSelected ? '2px solid var(--brand)' : '1px solid var(--border)'};border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:44px;flex:1;max-width:72px;flex-shrink:0;scroll-snap-align:start;-webkit-tap-highlight-color:transparent">
+      <span style="font-size:15px">${emoji}</span>
       <span>${dayName}</span>
       <span style="font-size:9px;opacity:0.8">${dateStr}</span>
     </div>`;
   }
   
-  html += `</div><div onclick="_weekOffset++;renderWeekStrip();renderSchedule()" style="padding:8px 12px;flex-shrink:0;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-weight:600">Next →</div></div>`;
+  html += `</div><div onclick="_weekOffset++;renderWeekStrip();renderSchedule()" style="${navBtnStyle}">→</div></div>`;
   document.getElementById('week-strip').innerHTML = html;
 }
 
@@ -2244,19 +2251,20 @@ if (cooldownPool.length > 0) {
 
     return `
   <div class="day-card expanded" data-day-index="${idx}" style="animation-delay:${idx * 50}ms">
-    <div class="day-hdr" onclick="this.parentNode.classList.toggle('collapsed')">
-      <span style="font-size:16px">${typeEmoji[type]}</span>
-      <span class="day-name">${DAYS_SHORT[idx]} — ${S.calisthenicsDay[idx] ? 'CALISTHENICS' : type.toUpperCase()}</span>
-      <button class="btn-secondary" onclick="event.stopPropagation(); toggleCalisthenicsDay(${idx})" style="white-space:nowrap">
-        ${S.calisthenicsDay[idx] ? '🤸 Calisthenics' : '🏋️ Gym'}
-      </button>
-      <div style="display:flex;gap:6px;align-items:center">
+    <div class="day-hdr" onclick="this.parentNode.classList.toggle('collapsed')" style="flex-direction:column;align-items:stretch;gap:8px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:16px">${typeEmoji[type]}</span>
+        <span class="day-name">${DAYS_SHORT[idx]} — ${S.calisthenicsDay[idx] ? 'CALISTHENICS' : type.toUpperCase()}</span>
+        <button class="btn-secondary" onclick="event.stopPropagation(); toggleCalisthenicsDay(${idx})" style="white-space:nowrap;padding:4px 10px;font-size:12px">
+          ${S.calisthenicsDay[idx] ? '🤸 Calisthenics' : '🏋️ Gym'}
+        </button>
+        <span class="chevron">⏷</span>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center" onclick="event.stopPropagation()">
         ${[15, 30, 45, 60].map(min => `
-          <button class="duration-btn ${S.workoutLength === min ? 'active' : ''}" onclick="event.stopPropagation(); setWorkoutLength(${min})" style="padding:6px 12px;font-size:11px;font-weight:600;background:var(--bg);border:1px solid var(--border);border-radius:6px;cursor:pointer;${S.workoutLength === min ? 'background:var(--brand);color:#fff;border-color:var(--brand)' : ''}">${min}m</button>
+          <button class="duration-btn ${S.workoutLength === min ? 'active' : ''}" onclick="event.stopPropagation(); setWorkoutLength(${min})" style="padding:5px 0;font-size:11px;font-weight:600;background:var(--bg);border:1px solid var(--border);border-radius:6px;cursor:pointer;flex:1;${S.workoutLength === min ? 'background:var(--brand);color:#fff;border-color:var(--brand)' : 'color:var(--text-secondary)'}">${min}m</button>
         `).join('')}
       </div>
-      <span class="badge badge-${type}">Day ${idx + 1}</span>
-      <span class="chevron">⏷</span>
     </div>
     <div class="day-body">${exHtml}</div>
   </div>`;
@@ -3163,9 +3171,6 @@ function setUnit(u) {
 }
 
 function updateStats() {
-  document.getElementById('stat-ex').textContent = S.log.length;
-  const latest = S.bwLog[S.bwLog.length - 1];
-  document.getElementById('stat-bw').textContent = latest ? `${latest.w}${S.unit}` : '—';
   const weekNum = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 1)) / 604_800_000);
   document.getElementById('stat-wk').textContent  = 'W' + (weekNum + 1);
   document.getElementById('stat-streak').textContent = getStreak() + '🔥';
