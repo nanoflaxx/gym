@@ -1,42 +1,50 @@
 {
   "name": "Gym Planner",
-  "short_name": "Gym",
-  "description": "Push/Pull gym schedule with logging and exercise tutorials",
-  "start_url": "/",
+  "short_name": "Gym Planner",
+  "description": "Push/Pull gym schedule with logging, muscle recovery tracking and exercise tutorials",
+  "start_url": "/gym/",
+  "scope": "/gym/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#1D9E75",
   "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "/icons/icon-192.png",
+      "src": "/gym/icons/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "maskable"
-    },
-    {
-      "src": "/icons/icon-512.png",
+      "src": "/gym/icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-512.png",
-      "sizes": "512x512",
+      "src": "/gym/icons/icon-192.png",
+      "sizes": "192x192",
       "type": "image/png",
       "purpose": "maskable"
     }
   ],
-  "categories": ["health", "fitness"],
+  "shortcuts": [
+    {
+      "name": "Log Workout",
+      "short_name": "Log",
+      "description": "Quick log for today's workout",
+      "url": "/gym/?tab=schedule",
+      "icons": [
+        {
+          "src": "/gym/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ],
   "screenshots": [
     {
-      "src": "/icons/icon-512.png",
+      "src": "/gym/icons/icon-512.png",
       "sizes": "512x512",
       "type": "image/png"
     }

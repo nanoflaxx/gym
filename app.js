@@ -3757,7 +3757,7 @@ function showTab(name) {
 
 // ── SERVICE WORKER ─────────────────────────────────────────
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js').catch(() => {});
+  navigator.serviceWorker.register('/gym/sw.js').catch(() => {});
 }
 
 // ============================================================
