@@ -1,5 +1,5 @@
 // ============================================================
-// GYM PLANNER — app.js
+// NANO-GYM — app.js
 // Push/Pull/Cardio · Injury tracking · Muscle fatigue
 // ============================================================
 //
@@ -2101,8 +2101,8 @@ function renderWeekStrip() {
   const dayOfWeek = (today.getDay() + 6) % 7;
   weekStart.setDate(today.getDate() - dayOfWeek + (_weekOffset * 7));
   
-  const navBtnStyle = `padding:8px 10px;flex-shrink:0;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-weight:600;color:var(--text);-webkit-tap-highlight-color:transparent;opacity:0.5`;
-  let html = `<div style="display:flex;gap:6px;align-items:center;padding:8px">
+  const navBtnStyle = `padding:8px 10px;flex-shrink:0;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-weight:600;color:var(--text);-webkit-tap-highlight-color:transparent`;
+  let html = `<div style="display:flex;gap:6px;align-items:center;padding:8px;background:var(--bg-secondary);border-radius:var(--radius-lg)">
     <div onclick="_weekOffset--;renderWeekStrip();renderSchedule()" style="${navBtnStyle}">←</div>
     <div style="flex:1;display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch">`;
   
@@ -2117,7 +2117,7 @@ function renderWeekStrip() {
     const type = sched[i];
     const emoji = { push: '💪', pull: '⬇️', cardio: '🏃', rest: '😴' }[type];
     
-    html += `<div onclick="selectDay(${i})" style="padding:8px 4px;background:${isToday ? 'var(--brand)' : 'var(--bg)'};color:${isToday ? '#fff' : 'var(--text)'};border:${isSelected ? '2px solid var(--brand)' : '1px solid var(--border)'};border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:2px;width:44px;flex-shrink:0;scroll-snap-align:start;-webkit-tap-highlight-color:transparent">
+    html += `<div onclick="selectDay(${i})" style="padding:8px 4px;background:${isToday ? 'var(--brand)' : 'var(--bg)'};color:${isToday ? '#fff' : 'var(--text)'};border:${isSelected ? '2px solid var(--brand)' : '1px solid var(--border)'};border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:44px;flex:1;max-width:72px;flex-shrink:0;scroll-snap-align:start;-webkit-tap-highlight-color:transparent">
       <span style="font-size:15px">${emoji}</span>
       <span>${dayName}</span>
       <span style="font-size:9px;opacity:0.8">${dateStr}</span>
@@ -3171,9 +3171,6 @@ function setUnit(u) {
 }
 
 function updateStats() {
-  document.getElementById('stat-ex').textContent = S.log.length;
-  const latest = S.bwLog[S.bwLog.length - 1];
-  document.getElementById('stat-bw').textContent = latest ? `${latest.w}${S.unit}` : '—';
   const weekNum = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 1)) / 604_800_000);
   document.getElementById('stat-wk').textContent  = 'W' + (weekNum + 1);
   document.getElementById('stat-streak').textContent = getStreak() + '🔥';

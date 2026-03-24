@@ -1,6 +1,6 @@
 {
-  "name": "Gym Planner",
-  "short_name": "Gym Planner",
+  "name": "Nano-Gym",
+  "short_name": "Nano-Gym",
   "description": "Push/Pull gym schedule with logging, muscle recovery tracking and exercise tutorials",
   "start_url": "/gym/index.html",
   "scope": "/gym/",
