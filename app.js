@@ -1851,10 +1851,11 @@ let S = {
     moreLegs: false
   },
   loggedToday: [],
-  hasSeenOnboarding: false,
+  hasSeenOnboarding: true,
   isOnline: navigator.onLine,
   offlineMode: false,  // User can force offline
   exerciseCache: {},   // Cache for Wger exercises
+  dailyExercisePlan: {}, // Keyed by "dayIdx-YYYY-MM-DD", stores max exercise list
   weeklyExercises: {   // Weekly pool of Wger exercises
     push: [],
     pull: [],
@@ -1916,7 +1917,10 @@ function loadState() {
   const saved = localStorage.getItem('gym_state');
   if (saved) {
     try {
-      S = { ...S, ...JSON.parse(saved) };
+      const parsed = JSON.parse(saved);
+      S = { ...S, ...parsed };
+      // Restore selectedDay (bare variable, not on S)
+      if (parsed.selectedDay !== undefined) _selectedDay = parsed.selectedDay;
     } catch (e) {
       console.warn('Failed to parse saved state', e);
     }
@@ -1933,13 +1937,18 @@ function loadState() {
 
 function saveState() {
   localStorage.setItem('gym_state', JSON.stringify({
-    userName:   S.userName,
-    days:       S.days,
-    customDays: S.customDays,
-    injuries:   S.injuries,
-    unit:       S.unit,
-    profile:    S.profile,
-    workoutOptions: S.workoutOptions
+    userName:         S.userName,
+    days:             S.days,
+    customDays:       S.customDays,
+    calisthenicsDay:  S.calisthenicsDay,
+    injuries:         S.injuries,
+    unit:             S.unit,
+    profile:          S.profile,
+    workoutOptions:   S.workoutOptions,
+    workoutLength:    S.workoutLength,
+    selectedDay:      _selectedDay,
+    hasSeenOnboarding: S.hasSeenOnboarding,
+    dailyExercisePlan: S.dailyExercisePlan
   }));
   localStorage.setItem('gym_log',      JSON.stringify(S.log));
   localStorage.setItem('gym_bw',       JSON.stringify(S.bwLog));
@@ -2132,8 +2141,88 @@ function renderWeekStrip() {
 let _selectedDay = null;
 function selectDay(dayIndex) {
   _selectedDay = dayIndex;
+  saveState();
   renderWeekStrip();
   renderSchedule();
+}
+
+// ── DAILY EXERCISE PLAN ────────────────────────────────────
+// Generates once per day at MAX exercise count. renderSchedule slices by workoutLength.
+const MAX_EXERCISE_COUNT = 12; // matches 90min count
+const MAX_BONUS_COUNT = 3;
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+}
+
+function getOrBuildDailyPlan(dayIdx, exerciseType, type) {
+  const key = `${dayIdx}-${todayKey()}`;
+  if (S.dailyExercisePlan[key]) return S.dailyExercisePlan[key];
+
+  // Build full plan at max count
+  const warmup = EXERCISES.filter(ex => ex.type === 'warmup').slice(0, 1);
+  let main = [];
+
+  if (exerciseType === 'calisthenics') {
+    const pool = S.weeklyExercises.calisthenics.length > 0 ? S.weeklyExercises.calisthenics : BONUS_CALISTHENICS;
+    main = selectRandomExercises(pool, MAX_EXERCISE_COUNT);
+  } else if (exerciseType === 'cardio') {
+    const pool = S.weeklyExercises.cardio.length > 0 ? S.weeklyExercises.cardio : EXERCISES.filter(ex => ex.type === 'cardio');
+    main = pool.slice(0, MAX_EXERCISE_COUNT);
+  } else {
+    const poolMap = { push: S.weeklyExercises.push, pull: S.weeklyExercises.pull, legs: S.weeklyExercises.legs };
+    const pool = poolMap[exerciseType] || [];
+    main = selectRandomExercises(pool.length > 0 ? pool : EXERCISES.filter(ex => ex.type === exerciseType), MAX_EXERCISE_COUNT);
+  }
+
+  // Bonus pools — also fixed for the day
+  const bonus = {
+    abs:         selectRandomExercises(S.weeklyExercises.core.length > 0 ? S.weeklyExercises.core : [...BONUS_CORE, ...BONUS_CORE_ADVANCED], MAX_BONUS_COUNT),
+    cardio:      selectRandomExercises([...BONUS_CARDIO_FINISHERS, ...BONUS_CARDIO_ADVANCED], MAX_BONUS_COUNT),
+    glutes:      selectRandomExercises([...BONUS_GLUTES, ...BONUS_LEGS], MAX_BONUS_COUNT),
+    calisthenics:selectRandomExercises(S.weeklyExercises.calisthenics.length > 0 ? S.weeklyExercises.calisthenics : BONUS_CALISTHENICS, MAX_BONUS_COUNT),
+    legs:        selectRandomExercises(BONUS_LEGS, MAX_BONUS_COUNT),
+    mobility:    selectRandomExercises(S.weeklyExercises.mobility.length > 0 ? S.weeklyExercises.mobility : BONUS_MOBILITY, MAX_BONUS_COUNT),
+  };
+
+  // Cooldown fixed for the day
+  const cooldownMap = { push: S.weeklyExercises.cooldownPush, pull: S.weeklyExercises.cooldownPull, legs: S.weeklyExercises.cooldownLegs, cardio: S.weeklyExercises.cooldownCardio };
+  const cooldownPool = cooldownMap[type] || [];
+  const cooldown = cooldownPool.length > 0
+    ? selectRandomExercises(cooldownPool, 1)
+    : (() => { const sm = getSmartCooldown(type, main.flatMap(e => e.muscles || [])); return sm.slice(0, 1); })();
+
+  const plan = { warmup, main, bonus, cooldown };
+  S.dailyExercisePlan[key] = plan;
+
+  // Prune old keys (keep only last 14 days)
+  const allKeys = Object.keys(S.dailyExercisePlan);
+  if (allKeys.length > 14) {
+    allKeys.sort().slice(0, allKeys.length - 14).forEach(k => delete S.dailyExercisePlan[k]);
+  }
+  saveState();
+  return plan;
+}
+
+function slicePlanByDuration(plan, workoutLength, workoutOptions, type) {
+  const exerciseCount = { 15: 3, 30: 5, 45: 7, 60: 9, 90: 12 };
+  const count = exerciseCount[workoutLength] || 7;
+  const bonusCount = workoutLength >= 45 ? (workoutLength >= 60 ? 2 : 1) : 0;
+
+  let exercises = [...plan.warmup, ...plan.main.slice(0, count)];
+
+  if (bonusCount > 0) {
+    if (workoutOptions.moreAbs)          exercises.push(...plan.bonus.abs.slice(0, bonusCount));
+    if (workoutOptions.moreCardio && (type === 'push' || type === 'pull'))
+                                         exercises.push(...plan.bonus.cardio.slice(0, bonusCount));
+    if (workoutOptions.moreGlutes)       exercises.push(...plan.bonus.glutes.slice(0, bonusCount));
+    if (workoutOptions.moreCalisthenics) exercises.push(...plan.bonus.calisthenics.slice(0, bonusCount));
+    if (workoutOptions.moreLegs)         exercises.push(...plan.bonus.legs.slice(0, bonusCount));
+    if (workoutOptions.moreMobility)     exercises.push(...plan.bonus.mobility.slice(0, bonusCount));
+  }
+
+  exercises.push(...plan.cooldown);
+  return exercises;
 }
 
 function renderSchedule() {
@@ -2178,75 +2267,12 @@ function renderSchedule() {
     let exerciseType = S.calisthenicsDay[idx] ? 'calisthenics' : type;
     
   // Get one warmup, then main exercises
-  let dayExercises = EXERCISES.filter(ex => ex.type === 'warmup').slice(0, 1);
-
-// Determine how many exercises to show based on workout length
-const exerciseCount = {
-  15: 3,
-  30: 5,
-  45: 7,
-  60: 9,
-  90: 12
-};
-const count = exerciseCount[S.workoutLength] || 7;
-
-if (exerciseType === 'calisthenics') {
-  // Calisthenics: use weekly calisthenics pool
-  dayExercises = dayExercises.concat(selectRandomExercises(S.weeklyExercises.calisthenics.length > 0 ? S.weeklyExercises.calisthenics : BONUS_CALISTHENICS, count));
-} else if (exerciseType === 'cardio') {
-  // Cardio: use weekly cardio pool (limit to 2-3 exercises max)
-  const cardioExercises = S.weeklyExercises.cardio.length > 0 ? S.weeklyExercises.cardio : EXERCISES.filter(ex => ex.type === 'cardio');
-  dayExercises = dayExercises.concat(cardioExercises.slice(0, 3));
-} else {
-  // Push/Pull: use weekly exercise pools
-  const poolMap = { push: S.weeklyExercises.push, pull: S.weeklyExercises.pull, legs: S.weeklyExercises.legs };
-  const typePool = poolMap[exerciseType] || [];
-  dayExercises = dayExercises.concat(selectRandomExercises(typePool.length > 0 ? typePool : EXERCISES.filter(ex => ex.type === exerciseType), count));
-}
-// Add bonus exercises based on options
-// Subtract bonus time from remaining time
-// Add bonus exercises based on options
-if (S.workoutOptions.moreAbs) {
-  const count = getBonusExerciseCount();
-  const absPool = S.weeklyExercises.core.length > 0 ? S.weeklyExercises.core : [...BONUS_CORE, ...BONUS_CORE_ADVANCED];
-  dayExercises.push(...selectRandomExercises(absPool, count));
-}
-if (S.workoutOptions.moreCardio && (type === 'push' || type === 'pull')) {
-  const count = getBonusExerciseCount();
-  const cardioPool = [...BONUS_CARDIO_FINISHERS, ...BONUS_CARDIO_ADVANCED];
-  dayExercises.push(...selectRandomExercises(cardioPool, count));
-}
-if (S.workoutOptions.moreGlutes) {
-  const count = getBonusExerciseCount();
-  const glutePool = [...BONUS_GLUTES, ...BONUS_LEGS];
-  dayExercises.push(...selectRandomExercises(glutePool, count));
-}
-if (S.workoutOptions.moreCalisthenics) {
-  const count = getBonusExerciseCount();
-  const calisPool = S.weeklyExercises.calisthenics.length > 0 ? S.weeklyExercises.calisthenics : BONUS_CALISTHENICS;
-  dayExercises.push(...selectRandomExercises(calisPool, count));
-}
-if (S.workoutOptions.moreLegs) {
-  const count = getBonusExerciseCount();
-  dayExercises.push(...selectRandomExercises(BONUS_LEGS, count));
-}
-if (S.workoutOptions.moreMobility) {
-  const count = getBonusExerciseCount();
-  const mobilityPool = S.weeklyExercises.mobility.length > 0 ? S.weeklyExercises.mobility : BONUS_MOBILITY;
-  dayExercises.push(...selectRandomExercises(mobilityPool, count));
-}
-// Add cooldown stretches at the end
-const cooldownMap = { push: S.weeklyExercises.cooldownPush, pull: S.weeklyExercises.cooldownPull, legs: S.weeklyExercises.cooldownLegs, cardio: S.weeklyExercises.cooldownCardio };
-const cooldownPool = cooldownMap[type] || [];
-if (cooldownPool.length > 0) {
-  dayExercises.push(...selectRandomExercises(cooldownPool, 1));
-} else {
-  // Fallback to smart cooldown if no weekly cooldown available
-  const dayMuscles = dayExercises.flatMap(ex => ex.muscles || []);
-  const smartCooldowns = getSmartCooldown(type, dayMuscles);
-  if (smartCooldowns.length > 0) _currentCooldown = smartCooldowns[0];
-  dayExercises = dayExercises.concat(smartCooldowns);
-}
+  let dayExercises = slicePlanByDuration(
+    getOrBuildDailyPlan(idx, exerciseType, type),
+    S.workoutLength,
+    S.workoutOptions,
+    type
+  );
       const exHtml = dayExercises.map(ex => renderExerciseRow(ex)).join('');
 
     return `
